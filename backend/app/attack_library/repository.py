@@ -35,12 +35,42 @@ class AttackPromptRepository:
 
     def load_prompts(self, categories: list[str], limit: int | None = None) -> list[AttackPrompt]:
         prompts = self._load_all()
-        category_set = set(categories)
+        ordered_categories = list(dict.fromkeys(categories))
+        category_set = set(ordered_categories)
 
         filtered = [prompt for prompt in prompts if prompt.category in category_set]
-        if limit is not None:
-            return filtered[:limit]
-        return filtered
+        if limit is None or limit >= len(filtered):
+            return filtered
+
+        prompts_by_category: dict[str, list[AttackPrompt]] = {
+            category: [] for category in ordered_categories
+        }
+        for prompt in filtered:
+            prompts_by_category[prompt.category].append(prompt)
+
+        selected: list[AttackPrompt] = []
+        category_indexes = {category: 0 for category in ordered_categories}
+
+        # Round-robin keeps smaller scans representative across selected categories.
+        while len(selected) < limit:
+            progressed = False
+            for category in ordered_categories:
+                index = category_indexes[category]
+                bucket = prompts_by_category.get(category, [])
+                if index >= len(bucket):
+                    continue
+
+                selected.append(bucket[index])
+                category_indexes[category] = index + 1
+                progressed = True
+
+                if len(selected) >= limit:
+                    break
+
+            if not progressed:
+                break
+
+        return selected
 
     def get_prompt_by_id(self, prompt_id: str) -> AttackPrompt:
         prompts = self._load_all()

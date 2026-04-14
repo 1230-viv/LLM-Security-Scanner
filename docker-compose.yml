@@ -1,23 +1,6 @@
 version: "3.9"
 
 services:
-  db:
-    image: postgres:15-alpine
-    container_name: llm-scanner-db
-    environment:
-      POSTGRES_DB: llm_scanner
-      POSTGRES_USER: scanner
-      POSTGRES_PASSWORD: scanner
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U scanner -d llm_scanner"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   backend:
     build:
       context: .
@@ -25,13 +8,8 @@ services:
     container_name: llm-scanner-backend
     env_file:
       - .env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://scanner:scanner@db:5432/llm_scanner
     ports:
       - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
 
   frontend:
     build:
@@ -44,6 +22,3 @@ services:
       - "5173:80"
     depends_on:
       - backend
-
-volumes:
-  postgres_data:

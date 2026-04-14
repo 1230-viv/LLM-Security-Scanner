@@ -27,7 +27,7 @@ def _contains_prompt_placeholder(value: Any) -> bool:
 
 
 class RateLimitConfig(BaseModel):
-    requests_per_second: float = Field(default=2.0, gt=0.0, le=20.0)
+    requests_per_second: float = Field(default=10.0, gt=0.0, le=20.0)
 
 
 class TargetInput(BaseModel):
@@ -53,7 +53,7 @@ class ScanConfig(BaseModel):
     max_requests: int | None = Field(default=None, ge=1, le=10000)
     max_tokens: int | None = Field(default=None, ge=1, le=10_000_000)
     cost_limit: float | None = Field(default=None, ge=0.0, le=10_000.0)
-    max_concurrent_requests: int = Field(default=5, ge=1, le=20)
+    max_concurrent_requests: int = Field(default=10, ge=1, le=20)
 
     @field_validator("categories")
     @classmethod

@@ -56,20 +56,42 @@ function ScanPage(): JSX.Element {
 
   return (
     <>
-      <section className="panel inline-row">
+      <section className="card-surface flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center sm:p-6">
         <div>
-          <h2>Scan Session</h2>
-          <p>Scan ID: {scanId}</p>
+          <h2 className="card-heading">Scan Session</h2>
+          <p className="mt-1 break-all font-mono text-xs text-slate-600">Scan ID: {scanId}</p>
         </div>
-        <Link to={`/report/${scanId}`}>Open Markdown Report</Link>
+
+        <div className="flex items-center gap-2">
+          <Link
+            to={`/report/${scanId}`}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:border-slate-500"
+          >
+            Open Markdown Report
+          </Link>
+          <Link
+            to="/"
+            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+          >
+            New Scan
+          </Link>
+        </div>
       </section>
 
-      {error ? <p className="error-text">{error}</p> : null}
+      {error ? (
+        <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </p>
+      ) : null}
 
-      {status ? <ScanStatus status={status} report={report} /> : <section className="panel">Loading...</section>}
+      {status ? (
+        <ScanStatus status={status} report={report} />
+      ) : (
+        <section className="card-surface p-5 text-sm text-slate-600">Loading status...</section>
+      )}
 
       {hasFindings && report ? (
-        <div className="grid-2">
+        <div className="grid gap-4 xl:grid-cols-2">
           <VulnerabilityList
             vulnerabilities={report.vulnerabilities}
             selectedId={selected?.id}
@@ -78,7 +100,7 @@ function ScanPage(): JSX.Element {
           <VulnerabilityDetail vulnerability={selected} />
         </div>
       ) : (
-        <section className="panel">
+        <section className="card-surface p-5 text-sm text-slate-600">
           {status?.status === "completed"
             ? "No vulnerabilities were detected in this run."
             : "Findings will appear when the scan completes."}

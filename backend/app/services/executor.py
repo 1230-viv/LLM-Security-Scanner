@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -46,9 +47,18 @@ class AttackExecutor:
         requests_per_second: float,
         timeout: int,
     ) -> None:
+        self._max_concurrent_requests = max_concurrent_requests
         self._semaphore = asyncio.Semaphore(max_concurrent_requests)
         self._rate_limiter = AsyncRequestRateLimiter(requests_per_second)
         self._timeout = timeout
+
+    def _http_limits(self) -> httpx.Limits:
+        max_connections = max(self._max_concurrent_requests * 2, 20)
+        max_keepalive = max(self._max_concurrent_requests, 10)
+        return httpx.Limits(
+            max_connections=max_connections,
+            max_keepalive_connections=max_keepalive,
+        )
 
     async def execute_prompt(
         self,
@@ -115,9 +125,30 @@ class AttackExecutor:
         prompts: list[AttackPrompt],
         target: TargetExecutionConfig,
     ) -> list[AttackExecutionResult]:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(limits=self._http_limits()) as client:
             tasks = [self.execute_prompt(client, prompt, target) for prompt in prompts]
             return await asyncio.gather(*tasks)
+
+    async def execute_batch_stream(
+        self,
+        prompts: list[AttackPrompt],
+        target: TargetExecutionConfig,
+    ) -> AsyncIterator[AttackExecutionResult]:
+        async with httpx.AsyncClient(limits=self._http_limits()) as client:
+            tasks = [
+                asyncio.create_task(self.execute_prompt(client, prompt, target))
+                for prompt in prompts
+            ]
+
+            try:
+                for task in asyncio.as_completed(tasks):
+                    yield await task
+            finally:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def _inject_prompt(template: Any, prompt_text: str) -> Any:

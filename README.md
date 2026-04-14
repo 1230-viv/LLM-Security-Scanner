@@ -14,14 +14,14 @@ This workspace now contains a complete backend and frontend setup based on the s
 - Structured report generation in JSON and Markdown
 - Replay endpoint for re-running specific prompts from prior scans
 - PostgreSQL persistence models for scans, responses, configs, vulnerabilities
-- Dockerized deployment for backend, frontend, and PostgreSQL
+- Supabase-ready deployment for backend and frontend
 
 ## Repository layout
 
 - `backend/`: FastAPI app, scanner core, detectors, prompt library, tests
 - `frontend/`: React dashboard (Vite)
 - `docker/`: backend and frontend Dockerfiles
-- `docker-compose.yml`: local orchestration with PostgreSQL
+- `docker-compose.yml`: local orchestration for backend + frontend (external DB)
 - `.env.example`: environment variable reference
 
 ## Backend architecture highlights
@@ -70,6 +70,78 @@ Prompt files are in:
 
 - `backend/app/attack_library/prompts/`
 
+### Prompt library source and expansion
+
+- Built-in curated library: `backend/app/attack_library/prompts/*.json` (200 prompts total)
+- Generator script: `backend/scripts/generate_attack_prompts.py`
+
+Regenerate the built-in library:
+
+```bash
+cd backend
+/home/zoro/miniconda3/bin/python scripts/generate_attack_prompts.py
+```
+
+You can also import additional prompts from public red-team datasets (for example OWASP LLM guidance test cases, custom internal attack playbooks, or licensed benchmark sets) by appending JSON entries to those category files. Keep IDs unique and category values aligned with scanner categories.
+
+### Run a 100-prompt scan
+
+Frontend:
+
+- Open the scan form.
+- Set `Max Prompts` to `100`.
+- Choose your categories.
+- Start scan.
+
+CLI:
+
+```bash
+cd backend
+SCANNER_API_BASE=http://127.0.0.1:8000/api/v1 \
+SCANNER_API_TOKEN=change-me \
+/home/zoro/miniconda3/bin/python -m app.cli scan \
+  http://127.0.0.1:11434/api/chat \
+  --model llama3.2:3b \
+  --template-preset chat \
+  --requests-per-second 20 \
+  --max-concurrent-requests 20 \
+  --max-prompts 100 \
+  --categories instruction_override,role_confusion,data_exfiltration,hidden_instruction_extraction
+```
+
+Note: prompt selection is round-robin across selected categories, so `100` prompts over all four default categories yields a balanced `25` prompts per category.
+
+Performance notes:
+
+- The backend now processes responses as they complete (streaming), so progress updates are visible earlier.
+- Database progress updates are committed in batches to reduce transaction overhead.
+- API defaults are tuned for faster scans (`requests_per_second=10`, `max_concurrent_requests=10`), and can be raised to `20/20` when the target endpoint can sustain it.
+
+## Production-grade hardening checklist
+
+For real production deployments, apply the following:
+
+1. Run API with a process manager and workers
+  - Use Gunicorn + Uvicorn workers behind Nginx/Traefik instead of dev `uvicorn --reload`.
+2. Move scan execution to a background worker queue
+  - Replace in-process `asyncio.create_task` execution with Celery/RQ/Arq workers and Redis.
+3. Enforce secrets and auth hardening
+  - Rotate `API_AUTH_TOKEN`, keep only secret-manager backed env vars, and enforce TLS everywhere.
+4. Add database resilience
+  - Enable managed DB backups/PITR, connection pool tuning, migration pipeline, and query monitoring.
+5. Add observability and alerting
+  - Structured logs, metrics (latency/error/rate), tracing, and on-call alerts.
+6. Add rate limiting and abuse controls at edge
+  - API gateway/WAF policies per IP/token, request size/time limits, and DDoS controls.
+7. Add CI quality gates
+  - Enforce backend tests, frontend build, linting, SAST/dependency scanning, and image scanning.
+8. Add container runtime hardening
+  - Non-root containers, pinned base images, regular CVE patching, minimal image footprint.
+9. Add report/data governance
+  - Retention rules, encrypted backups, PII/sensitive payload scrubbing policy.
+10. Add staged rollout strategy
+  - Dev/stage/prod isolation, canary releases, and rollback runbooks.
+
 ## Local development
 
 ### 1) Environment setup
@@ -77,7 +149,7 @@ Prompt files are in:
 Copy the sample env file:
 
 ```bash
-cp .env.example .env
+cp .env.example backend/.env
 ```
 
 Set values for at least:
@@ -86,10 +158,12 @@ Set values for at least:
 - `API_AUTH_TOKEN`
 - `ENCRYPTION_KEY` (recommended for non-dev)
 
-### 2) Start PostgreSQL (Docker)
+### 2) Configure Supabase connection
+
+Use your Supabase pooled Postgres URI in `backend/.env`:
 
 ```bash
-docker compose up -d db
+DATABASE_URL=postgresql+asyncpg://postgres.project-ref:your-db-password@aws-0-your-region.pooler.supabase.com:6543/postgres
 ```
 
 ### 3) Backend
@@ -122,7 +196,7 @@ Services:
 
 - Frontend: `http://localhost:5173`
 - Backend: `http://localhost:8000`
-- PostgreSQL: `localhost:5432`
+- Database: Supabase via `DATABASE_URL`
 
 ## Testing and validation
 

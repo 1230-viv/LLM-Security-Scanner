@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,7 @@ from app.core.lifecycle import ScanLifecycleManager
 from app.core.plugin_manager import PluginManager
 from app.core.security import decrypt_api_key
 from app.db.models import AttackResponseRecord, Scan, TargetConfigRecord, VulnerabilityRecord
+from app.schemas.attack import AttackExecutionResult
 from app.schemas.scan import ScanConfig
 from app.services.executor import AttackExecutor, TargetExecutionConfig
 
@@ -22,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 class ScanOrchestrator:
     """Main scan workflow coordinator."""
+
+    PROGRESS_COMMIT_BATCH_SIZE = 10
 
     def __init__(
         self,
@@ -81,12 +84,12 @@ class ScanOrchestrator:
         )
         tracker = CostTracker()
 
-        responses = await executor.execute_batch(prompts, target)
+        responses = executor.execute_batch_stream(prompts, target)
         raw_findings = await self._analyze_responses(session, scan, responses, config, tracker)
 
         aggregated = self.aggregator.aggregate_vulnerabilities(raw_findings)
-        for vulnerability in aggregated:
-            session.add(
+        session.add_all(
+            [
                 VulnerabilityRecord(
                     scan_id=scan.id,
                     type=vulnerability.type,
@@ -98,7 +101,9 @@ class ScanOrchestrator:
                     evidence=vulnerability.evidence,
                     suggested_fix=vulnerability.suggested_fix,
                 )
-            )
+                for vulnerability in aggregated
+            ]
+        )
 
         completed_transition = await self.lifecycle_manager.transition_state(
             session, str(scan.id), ScanLifecycleManager.COMPLETED
@@ -121,14 +126,15 @@ class ScanOrchestrator:
         self,
         session: AsyncSession,
         scan: Scan,
-        responses: Sequence,
+        responses: AsyncIterable[AttackExecutionResult],
         config: ScanConfig,
         tracker: CostTracker,
     ):
         selected_detectors = self.plugin_manager.get_detectors(config.categories)
         findings = []
+        pending_commits = 0
 
-        for response in responses:
+        async for response in responses:
             session.add(
                 AttackResponseRecord(
                     scan_id=scan.id,
@@ -153,18 +159,32 @@ class ScanOrchestrator:
                 config.max_tokens,
                 config.cost_limit,
             )
+
+            if response.error or not response.response_payload:
+                pending_commits += 1
+                if pending_commits >= self.PROGRESS_COMMIT_BATCH_SIZE:
+                    await session.commit()
+                    pending_commits = 0
+
+                if not should_continue:
+                    logger.warning({"event": "scan_limit_reached", "scan_id": str(scan.id)})
+                    break
+                continue
+
             if not should_continue:
                 logger.warning({"event": "scan_limit_reached", "scan_id": str(scan.id)})
                 break
-
-            if response.error or not response.response_payload:
-                await session.commit()
-                continue
 
             for detector in selected_detectors:
                 detected = await detector.detect(response)
                 findings.extend(detected)
 
+            pending_commits += 1
+            if pending_commits >= self.PROGRESS_COMMIT_BATCH_SIZE:
+                await session.commit()
+                pending_commits = 0
+
+        if pending_commits:
             await session.commit()
 
         return findings

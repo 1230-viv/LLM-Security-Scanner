@@ -26,30 +26,68 @@ def _headers() -> dict[str, str]:
 def scan(
     endpoint_url: str = typer.Argument(..., help="Target endpoint URL"),
     api_key: str = typer.Option("", "--api-key", help="Target endpoint API key"),
+    model: str = typer.Option("gpt-4o-mini", "--model", help="Model name inserted in request payload"),
+    template_preset: str = typer.Option(
+        "chat",
+        "--template-preset",
+        help="Request template preset: chat or generate",
+    ),
     max_prompts: int = typer.Option(50, "--max-prompts", min=1, max=1000),
+    requests_per_second: float = typer.Option(
+        10.0,
+        "--requests-per-second",
+        min=0.1,
+        max=20.0,
+        help="Client-side request rate target",
+    ),
+    max_concurrent_requests: int = typer.Option(
+        10,
+        "--max-concurrent-requests",
+        min=1,
+        max=20,
+        help="Maximum in-flight requests",
+    ),
+    timeout: int = typer.Option(
+        30,
+        "--timeout",
+        min=5,
+        max=120,
+        help="Per-request timeout in seconds",
+    ),
     categories: str = typer.Option(
         "instruction_override,role_confusion,data_exfiltration,hidden_instruction_extraction",
         "--categories",
         help="Comma-separated categories",
     ),
 ) -> None:
+    if template_preset == "chat":
+        request_template = {
+            "model": model,
+            "messages": [{"role": "user", "content": "{prompt}"}],
+        }
+    elif template_preset == "generate":
+        request_template = {
+            "model": model,
+            "prompt": "{prompt}",
+            "stream": False,
+        }
+    else:
+        raise typer.BadParameter("--template-preset must be one of: chat, generate")
+
     payload = {
         "target": {
             "endpoint_url": endpoint_url,
             "api_key": api_key or None,
-            "request_template": {
-                "model": "gpt-4o-mini",
-                "messages": [{"role": "user", "content": "{prompt}"}],
-            },
+            "request_template": request_template,
             "headers": {},
-            "timeout": 30,
+            "timeout": timeout,
         },
         "config": {
             "max_prompts": max_prompts,
             "categories": [item.strip() for item in categories.split(",") if item.strip()],
-            "timeout": 30,
-            "rate_limit": {"requests_per_second": 2},
-            "max_concurrent_requests": 5,
+            "timeout": timeout,
+            "rate_limit": {"requests_per_second": requests_per_second},
+            "max_concurrent_requests": max_concurrent_requests,
         },
     }
 
