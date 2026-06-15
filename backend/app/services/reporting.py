@@ -5,6 +5,7 @@ from datetime import timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.response_processing import sanitize_response_text
 from app.db.models import Scan, VulnerabilityRecord
 from app.schemas.report import (
     ReportResourceUsage,
@@ -64,7 +65,7 @@ class ReportGenerator:
                     severity=item.severity,
                     confidence=item.confidence,
                     attack_prompt=item.attack_prompt,
-                    response_text=item.response_text,
+                    response_text=sanitize_response_text(item.response_text),
                     detection_method=item.detection_method,
                     evidence=item.evidence,
                     suggested_fix=item.suggested_fix,
@@ -105,7 +106,7 @@ class ReportGenerator:
                     f"- Confidence: {item.confidence}",
                     f"- Detector: {item.detection_method}",
                     f"- Attack Prompt: {item.attack_prompt}",
-                    f"- Response: {item.response_text[:800]}",
+                    f"- Response: {sanitize_response_text(item.response_text)[:800]}",
                     f"- Suggested Fix: {item.suggested_fix}",
                 ]
             )

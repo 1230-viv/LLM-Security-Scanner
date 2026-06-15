@@ -13,6 +13,7 @@ from app.core.cost_tracker import CostTracker
 from app.core.lifecycle import ScanLifecycleManager
 from app.core.plugin_manager import PluginManager
 from app.core.security import decrypt_api_key
+from app.core.response_processing import sanitize_response_text
 from app.db.models import AttackResponseRecord, Scan, TargetConfigRecord, VulnerabilityRecord
 from app.schemas.attack import AttackExecutionResult
 from app.schemas.scan import ScanConfig
@@ -95,7 +96,7 @@ class ScanOrchestrator:
                     type=vulnerability.type,
                     severity=vulnerability.severity,
                     attack_prompt=vulnerability.attack_prompt,
-                    response_text=vulnerability.response_text,
+                    response_text=sanitize_response_text(vulnerability.response_text),
                     detection_method=vulnerability.detection_method,
                     confidence=vulnerability.confidence,
                     evidence=vulnerability.evidence,

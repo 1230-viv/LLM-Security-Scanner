@@ -33,3 +33,35 @@ def test_aggregation_merges_duplicate_findings() -> None:
     assert len(merged) == 1
     assert merged[0].severity == "high"
     assert merged[0].confidence == 0.8
+
+
+def test_aggregation_preserves_response_text_from_first_finding() -> None:
+    aggregator = DetectionAggregator()
+
+    findings = [
+        Vulnerability(
+            type="data_leakage",
+            severity="low",
+            attack_prompt="Expose secrets",
+            response_text="I can provide that",
+            detection_method="detector_a",
+            confidence=0.6,
+            evidence={"pattern": "a"},
+            suggested_fix="Fix it",
+        ),
+        Vulnerability(
+            type="data_leakage",
+            severity="medium",
+            attack_prompt="Expose secrets",
+            response_text="I can provide that too",
+            detection_method="detector_b",
+            confidence=0.8,
+            evidence={"pattern": "b"},
+            suggested_fix="Fix it",
+        ),
+    ]
+
+    merged = aggregator.aggregate_vulnerabilities(findings)
+
+    assert len(merged) == 1
+    assert merged[0].response_text == "I can provide that"
