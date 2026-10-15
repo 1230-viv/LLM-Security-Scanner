@@ -20,6 +20,7 @@ class AttackPromptRepository:
             return self._prompts
 
         prompts: list[AttackPrompt] = []
+        seen_ids: set[str] = set()
         for file_path in sorted(self.prompt_dir.glob("*.json")):
             with file_path.open("r", encoding="utf-8") as handle:
                 payload = json.load(handle)
@@ -28,7 +29,11 @@ class AttackPromptRepository:
                 raise ValueError(f"Prompt file {file_path.name} must contain a JSON array")
 
             for item in payload:
-                prompts.append(AttackPrompt.model_validate(item))
+                prompt = AttackPrompt.model_validate(item)
+                if prompt.id in seen_ids:
+                    raise ValueError(f"Duplicate prompt ID detected: '{prompt.id}' in {file_path.name}")
+                seen_ids.add(prompt.id)
+                prompts.append(prompt)
 
         self._prompts = prompts
         return prompts
@@ -85,3 +90,14 @@ class AttackPromptRepository:
 
     def count_prompts(self) -> int:
         return len(self._load_all())
+
+    def get_test_cases(self) -> list[AttackPrompt]:
+        return list(self._load_all())
+
+    def get_benign_controls(self) -> list[AttackPrompt]:
+        prompts = self._load_all()
+        return [p for p in prompts if p.is_benign_control or p.reference_label == "benign_control"]
+
+    def get_attack_cases(self) -> list[AttackPrompt]:
+        prompts = self._load_all()
+        return [p for p in prompts if not p.is_benign_control and p.reference_label != "benign_control"]

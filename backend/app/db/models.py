@@ -68,12 +68,17 @@ class AttackResponseRecord(Base):
         UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False
     )
     prompt_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    test_case_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     prompt_text: Mapped[str] = mapped_column(Text, nullable=False)
     request_payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
     response_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     response_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    outcome: Mapped[str] = mapped_column(String(30), nullable=False, default="COMPLETED")
+    completion_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    test_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     scan: Mapped[Scan] = relationship(back_populates="attack_responses")

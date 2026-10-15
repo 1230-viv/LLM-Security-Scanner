@@ -21,9 +21,11 @@ class ReportResourceUsage(BaseModel):
 
 class ReportVulnerability(BaseModel):
     id: str
+    test_case_id: str | None = None
     type: str
     severity: str
     confidence: float
+    verdict: str = "SUSPECTED"
     attack_prompt: str
     response_text: str
     detection_method: str

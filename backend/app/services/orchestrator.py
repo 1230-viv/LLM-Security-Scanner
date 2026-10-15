@@ -13,7 +13,6 @@ from app.core.cost_tracker import CostTracker
 from app.core.lifecycle import ScanLifecycleManager
 from app.core.plugin_manager import PluginManager
 from app.core.security import decrypt_api_key
-from app.core.response_processing import sanitize_response_text
 from app.db.models import AttackResponseRecord, Scan, TargetConfigRecord, VulnerabilityRecord
 from app.schemas.attack import AttackExecutionResult
 from app.schemas.scan import ScanConfig
@@ -96,7 +95,9 @@ class ScanOrchestrator:
                     type=vulnerability.type,
                     severity=vulnerability.severity,
                     attack_prompt=vulnerability.attack_prompt,
-                    response_text=sanitize_response_text(vulnerability.response_text),
+                    # Keep the exact model response for reproducible evidence. Secrets are
+                    # protected by the access boundary, not by altering forensic evidence.
+                    response_text=vulnerability.response_text,
                     detection_method=vulnerability.detection_method,
                     confidence=vulnerability.confidence,
                     evidence=vulnerability.evidence,
@@ -133,19 +134,23 @@ class ScanOrchestrator:
     ):
         selected_detectors = self.plugin_manager.get_detectors(config.categories)
         findings = []
-        pending_commits = 0
 
         async for response in responses:
             session.add(
                 AttackResponseRecord(
                     scan_id=scan.id,
                     prompt_id=response.prompt_id,
+                    test_case_id=response.test_case_id or response.prompt_id,
                     prompt_text=response.prompt_text,
                     request_payload=response.request_payload,
                     response_payload=response.response_payload,
                     status_code=response.status_code,
                     response_time_ms=response.response_time_ms,
                     error=response.error,
+                    error_type=response.error_type,
+                    outcome=response.outcome,
+                    completion_metadata=response.completion_metadata,
+                    test_metadata=response.test_metadata,
                 )
             )
 
@@ -154,6 +159,20 @@ class ScanOrchestrator:
             scan.total_requests = tracker.usage.total_requests
             scan.total_tokens = tracker.usage.total_tokens
             scan.total_cost = round(tracker.usage.total_cost, 6)
+            logger.info(
+                {
+                    "event": "scan_prompt_completed",
+                    "scan_id": str(scan.id),
+                    "prompt_id": response.prompt_id,
+                    "completed_prompts": scan.completed_prompts,
+                    "total_prompts": scan.total_prompts,
+                    "outcome": response.outcome,
+                    "error_type": response.error_type,
+                }
+            )
+            # Publish execution progress before detector analysis. A detector must
+            # not prevent the status endpoint from observing completed work.
+            await session.commit()
 
             should_continue = tracker.check_limits(
                 config.max_requests,
@@ -162,11 +181,6 @@ class ScanOrchestrator:
             )
 
             if response.error or not response.response_payload:
-                pending_commits += 1
-                if pending_commits >= self.PROGRESS_COMMIT_BATCH_SIZE:
-                    await session.commit()
-                    pending_commits = 0
-
                 if not should_continue:
                     logger.warning({"event": "scan_limit_reached", "scan_id": str(scan.id)})
                     break
@@ -179,13 +193,5 @@ class ScanOrchestrator:
             for detector in selected_detectors:
                 detected = await detector.detect(response)
                 findings.extend(detected)
-
-            pending_commits += 1
-            if pending_commits >= self.PROGRESS_COMMIT_BATCH_SIZE:
-                await session.commit()
-                pending_commits = 0
-
-        if pending_commits:
-            await session.commit()
 
         return findings

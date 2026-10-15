@@ -13,6 +13,10 @@ ALLOWED_CATEGORIES = {
     "prompt_injection",
     "jailbreak",
     "data_leakage",
+    "response_integrity",
+    "response_accuracy",
+    "instruction_following",
+    "synthetic_marker_match",
 }
 
 

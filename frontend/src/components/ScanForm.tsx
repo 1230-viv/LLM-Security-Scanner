@@ -86,14 +86,14 @@ const ALL_CATEGORIES = [
 
 function ScanForm({ onScanCreated }: Props): JSX.Element {
   const [preset, setPreset] = useState<TemplatePreset>("ollama_chat");
-  const [model, setModel] = useState("llama3.2:latest");
+  const [model, setModel] = useState("");
   const [endpointUrl, setEndpointUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [headersText, setHeadersText] = useState("{}");
   const [maxPrompts, setMaxPrompts] = useState(100);
   const [timeout, setTimeout] = useState(30);
-  const [requestsPerSecond, setRequestsPerSecond] = useState(10);
-  const [maxConcurrentRequests, setMaxConcurrentRequests] = useState(10);
+  const [requestsPerSecond, setRequestsPerSecond] = useState(2);
+  const [maxConcurrentRequests, setMaxConcurrentRequests] = useState(1);
   const [selectedCategories, setSelectedCategories] = useState<string[]>(ALL_CATEGORIES);
   const [requestTemplateText, setRequestTemplateText] = useState("");
   const [error, setError] = useState<string>("");
@@ -193,7 +193,9 @@ function ScanForm({ onScanCreated }: Props): JSX.Element {
 
     const normalizedTemplate = {
       ...parsedTemplate,
-      ...(typeof parsedTemplate.model === "string" ? { model } : {}),
+      ...(typeof parsedTemplate.model === "string" && model.trim()
+        ? { model: model.trim() }
+        : {}),
     };
 
     setIsSubmitting(true);

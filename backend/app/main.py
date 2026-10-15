@@ -5,14 +5,13 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
 
 from app.api.v1.router import api_router
 from app.core.logging import configure_logging
 from app.core.rate_limiter import InMemoryRateLimiter
 from app.core.settings import get_settings
-from app.db.base import Base
 from app.db.session import engine
+from app.services.scan_service import scan_service
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -57,14 +56,10 @@ async def security_headers_middleware(request: Request, call_next):
 
 @app.on_event("startup")
 async def on_startup() -> None:
-    async with engine.begin() as connection:
-        try:
-            await connection.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto;"))
-        except Exception:  # noqa: BLE001
-            logger.warning({"event": "pgcrypto_extension_unavailable"})
-        await connection.run_sync(Base.metadata.create_all)
-
+    recovered = await scan_service.recover_interrupted_scans()
     logger.info({"event": "startup_complete", "environment": settings.environment})
+    if recovered:
+        logger.warning({"event": "interrupted_scans_recovered", "count": recovered})
 
 
 @app.on_event("shutdown")

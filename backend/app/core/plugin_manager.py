@@ -4,6 +4,7 @@ from app.detectors.base import DetectorPlugin
 from app.detectors.data_leakage import DataLeakageDetector
 from app.detectors.jailbreak import JailbreakDetector
 from app.detectors.prompt_injection import PromptInjectionDetector
+from app.detectors.response_integrity import ResponseIntegrityDetector
 
 
 class PluginManager:
@@ -14,6 +15,7 @@ class PluginManager:
         self.register_detector(PromptInjectionDetector())
         self.register_detector(JailbreakDetector())
         self.register_detector(DataLeakageDetector())
+        self.register_detector(ResponseIntegrityDetector())
 
     def register_detector(self, detector: DetectorPlugin) -> None:
         self._detectors.append(detector)

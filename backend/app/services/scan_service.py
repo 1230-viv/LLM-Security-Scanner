@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +28,7 @@ class ScanService:
     def __init__(self) -> None:
         self.orchestrator = ScanOrchestrator()
         self.report_generator = ReportGenerator()
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
     async def create_scan(
         self,
@@ -40,8 +41,8 @@ class ScanService:
             configuration=payload.config.model_dump(mode="json"),
             total_prompts=0,
             completed_prompts=0,
-            created_at=datetime.now(timezone.utc),
-            queued_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            queued_at=datetime.now(UTC),
         )
         session.add(scan)
         await session.flush()
@@ -58,13 +59,33 @@ class ScanService:
         )
         await session.commit()
 
-        asyncio.create_task(self._run_scan(scan.id))
+        task = asyncio.create_task(self._run_scan(scan.id))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
         return StartScanResponse(
             scan_id=str(scan.id),
             status=scan.status,
             created_at=scan.created_at,
         )
+
+    async def recover_interrupted_scans(self) -> int:
+        """Mark scans whose in-process worker disappeared during a restart."""
+        recovered = 0
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                select(Scan).where(Scan.status.in_(("queued", "running")))
+            )
+            scans = result.scalars().all()
+            now = datetime.now(UTC)
+            for scan in scans:
+                scan.status = "failed"
+                scan.error_message = "Scan interrupted because the backend worker restarted"
+                scan.completed_at = now
+                recovered += 1
+            if recovered:
+                await session.commit()
+        return recovered
 
     async def _run_scan(self, scan_id: uuid.UUID) -> None:
         async with AsyncSessionFactory() as session:
@@ -75,12 +96,18 @@ class ScanService:
             try:
                 await self.orchestrator.execute_scan(session, scan_id)
             except Exception as exc:  # noqa: BLE001
-                scan.status = "failed"
-                scan.error_message = str(exc)
-                scan.completed_at = datetime.now(timezone.utc)
+                await session.rollback()
+                failed_scan = await session.get(Scan, scan_id)
+                if failed_scan is None:
+                    return
+                failed_scan.status = "failed"
+                failed_scan.error_message = str(exc)
+                failed_scan.completed_at = datetime.now(UTC)
                 await session.commit()
 
-    async def get_scan_status(self, session: AsyncSession, scan_id: str) -> ScanStatusResponse | None:
+    async def get_scan_status(
+        self, session: AsyncSession, scan_id: str
+    ) -> ScanStatusResponse | None:
         try:
             parsed_scan_id = uuid.UUID(scan_id)
         except ValueError:
@@ -168,7 +195,11 @@ class ScanService:
         if target is None:
             return None
 
-        executor = AttackExecutor(max_concurrent_requests=1, requests_per_second=1, timeout=target.timeout)
+        executor = AttackExecutor(
+            max_concurrent_requests=1,
+            requests_per_second=1,
+            timeout=target.timeout,
+        )
         replay_result = await executor.execute_batch(
             prompts=[
                 AttackPrompt(
